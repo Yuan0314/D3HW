@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    
+    <meta charset="utf-8" />
+    <title>UK map</title>
+    <style>
+        body{
+            overflow: hidden;
+        }
+        /* Define the style of the pop-up prompt box */
+        .tooltip {
+            position: absolute;
+            content: attr(data-tooltip);
+            text-align: center;
+            min-width: 3em;
+            max-width: 21em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding: 15px 8px;
+            border-radius: 3px;
+            background: #F3F3F6;
+            opacity: 0.8;
+            color: #000000;
+            z-index: 99;
+            -moz-box-shadow: 3px 3px 5px #534141;
+            box-shadow: 3px 3px 5px #888888;
+        }
+        /* Define the outer div style of the chart */
+        #chart{
+            text-align: center;
+            width: 960px;
+            height: 680px;
+            margin: 0 auto;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+
+<body>
+    <h1 id="headerID">D3 UK map Assignment</h1>
+    <div id="chart">
+        <div style="border-bottom: 1px solid #ccc;padding-bottom: 10px;padding-top: 10px;">
+            <button onclick="RefreshChart()">Refresh Data</button>
+        </div>        
+    </div>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="//d3js.org/topojson.v1.min.js"></script>
+    <script>
+        // Define the pop-up prompt box
+        var tooltip = d3.select("body")
+            .append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0.0);
+        // Generate the content of the pop-up prompt box
+        function tooltipContent(list, title) {
+            var tpl = "<div style='margin-top:5px;'><span>"
+            tpl += "{name}: </span>{value}</div>";
+            var html = "<div style='padding-left:20px;padding-right: 20px;padding-bottom:10px;font-size:12px;'>";
+            html += "<h2>" + title + "</h2>"
+            list.forEach(function (dataItem) {
+                name = dataItem.name, value = dataItem.value;
+                html += tpl.replace("{name}", name).replace("{value}", value);
+            });
+            html += "</div>";
+            return html;
+        }
+        // Define the type of map drawing
+        var MapChart = function (option) {
+            this.option = option;
+            this.data = null;
+
+            // // Define the method of drawing the map
+            MapChart.prototype.draw = function () {
+                var option = this.option;
+                var margin = option.margin;
+                var width = option.width;
+                var height = option.height;
+                var uk = this.uk;
+                var data = this.data;
+                var subunits = topojson.feature(uk, uk.objects.subunits);
+                var colorScale = d3.scaleOrdinal(["#f4c14e", "#7cc995", "#ba69ec", "#f6726d"]);
+
+
+                var scale = d3.scaleLinear()
+                    .domain([0, d3.max(data, d => d.Population)])
+                    .range([0, 15])
+                    ;
+                // Map projection method
+                var projectionScale = width * 4;
+                var projectionTop = (height + projectionScale) * 0.95;
+                var projection = d3.geoEqualEarth()
+                    .scale(projectionScale)
+                    .translate([width / 1.5, projectionTop])
+                    .precision(.1);
+
+                // Map generator
+                var path = d3.geoPath(projection);
+
+                d3.select(option.domId).select("svg").remove();
+                var svg = d3.select(option.domId)
+                    .append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.bottom + margin.top)
+                    .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+                var mapGroup = svg.append("g")
+                    ;
+
+                // draw map
+                mapGroup.selectAll("path")
+                    .data(subunits.features)
+                    .join("path")
+                    .attr("class", d => `state ${d.properties.name.replace(/[ \.#']+/g, '')}`)
+                    .attr("d", path)
+                    .style("stroke", "#fff")
+                    .style("stroke-width", 1)
+                    .style("fill", (d, i) => {
+                        return colorScale(i);
+                    })
+                    ;
+
+                // draw dots
+                mapGroup.selectAll("circle")
+                    .data(data)
+                    .join("circle")
+                    .attr("param", d => scale(d.Population))
+                    .attr("fill", "#20B2AA")
+                    .attr("cx", d => {
+                        var pos = projection([d.lng, d.lat]);
+                        return pos[0];
+                    })
+                    .attr("cy", d => {
+                        var pos = projection([d.lng, d.lat]);
+                        return pos[1];
+                    })
+                    .style("stroke-width", 1)
+                    .style("stroke", "#000")
+                    .on("mousemove",mousemove)      
+                    .on("mouseout",mouseout)        
+                    .attr("r", 0)                   
+                    .transition()                   
+                    .duration(800)                  
+                    .attr("r", d => scale(d.Population));   
+            };
+        // Set chart data, map data and punctuation data
+            MapChart.prototype.setData = function (opt) {
+                if(opt.uk){
+                    this.uk = opt.uk;
+                }
+                if(opt.data){
+                    this.data = opt.data;
+                }
+            };
+        };
+
+        var mapChart = new MapChart({
+            domId: "#chart",
+            width: 900,
+            height: 600,
+            margin: {
+                top: 20, left: 20, right: 20, bottom: 20
+            }
+        });
+
+        var mapPromis = new Promise((resolve, reject) => {
+            d3.json("uk.json").then(function (res) {
+                resolve(res);
+            });
+        });
+        var dataPromis = new Promise((resolve, reject) => {
+            d3.json("http://35.205.156.205/Circles/Towns/50").then(function (res) {
+                resolve(res);
+            });
+        });
+
+        function ready(list) {
+            mapChart.setData({
+                uk:list[0], data:list[1]
+            });
+            mapChart.draw();
+        }
+        Promise.all([mapPromis, dataPromis]).then(ready);
+   
+        function RefreshChart(){
+            d3.json("http://35.205.156.205/Circles/Towns/50").then(function (res) {
+                mapChart.setData({
+                    data: res
+                });
+                mapChart.draw();
+            });
+        }
+        // Mouse event
+        function mousemove(evt, d) {
+            var strhtml = tooltipContent([
+                { name: "County", value: d.County},
+                { name: "Town", value: d.Town },
+                { name: "Population", value: d.Population },
+                { name: "lng", value: d.lgn },
+                { name: "lat", value: d.lat },
+            ], d.Town);
+            var lw = 230;
+            var tooltipTop = (evt.pageY + 60);
+            if(tooltipTop > window.innerHeight - lw){
+                tooltipTop = (evt.pageY - lw);
+            }
+            tooltip.html(strhtml)
+                .style("width", "auto")
+                .style("height", "auto")
+                .style("left", (evt.pageX - 80) + "px")
+                .style("top", tooltipTop + "px")
+                .style("opacity", 0.8)
+                ;
+            var param = d3.select(this).attr("param") * 1;
+            d3.select(this)
+                .style("r", param * 1.5);
+        }
+        function mouseout(evt, d) {
+            tooltip.style("width", 0)
+                .style("height", 0)
+                .style("opacity", 0.0);
+                var param = d3.select(this).attr("param") * 1;
+            d3.select(this)
+                .style("r", param);
+        }
+    </script>
+</body>
+
+</html>
